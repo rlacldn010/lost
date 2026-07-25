@@ -1,0 +1,1611 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>실종자 수사 범위 좁히기 — continuous</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html { -webkit-text-size-adjust:100%; }
+  body {
+    font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;
+    background:#f2f4f8; color:#1c2333; line-height:1.55;
+  }
+  /* ===== 재난문자풍 경보 배너 ===== */
+  #alertBar {
+    background:#d32f2f; color:#fff; font-weight:bold;
+    padding:9px 14px; font-size:14px; text-align:center;
+  }
+  /* ===== 헤더 ===== */
+  header {
+    background:#12275e; color:#fff; padding:18px 16px;
+  }
+  .headInner {
+    max-width:980px; margin:0 auto; display:flex;
+    justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;
+  }
+  header h1 { font-size:22px; letter-spacing:-0.5px; }
+  header .sub { font-size:12.5px; color:#b8c4e6; margin-top:3px; }
+  .userBox { font-size:13px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .roleBadge {
+    background:#1e3d8f; border:1px solid #4a63b0; border-radius:12px;
+    padding:2px 10px; font-size:12px;
+  }
+  .roleBadge.police { background:#f2b705; color:#12275e; border-color:#f2b705; font-weight:bold; }
+  .btnGhost {
+    background:transparent; color:#b8c4e6; border:1px solid #4a63b0;
+    border-radius:6px; padding:4px 10px; font-size:12px; cursor:pointer;
+  }
+  .btnGhost:hover { color:#fff; }
+
+  main { max-width:980px; margin:0 auto; padding:16px 12px 60px; }
+  section {
+    background:#fff; border-radius:10px; padding:18px 16px;
+    margin-bottom:16px; box-shadow:0 1px 4px rgba(18,39,94,.08);
+  }
+  h2 {
+    font-size:17px; color:#12275e; margin-bottom:10px;
+    border-left:4px solid #d32f2f; padding-left:9px;
+  }
+  .hint { font-size:12.5px; color:#66708a; margin-bottom:10px; }
+
+  /* ===== 지도 (Leaflet) ===== */
+  .mapWrap {
+    border:2px solid #12275e; border-radius:8px; overflow:hidden;
+    background:#e8edf4; position:relative; z-index:0;
+  }
+  #overviewMap { height:360px; }
+  #detailMap { height:430px; }
+  .mapWrap.picking { cursor:crosshair; outline:3px dashed #d32f2f; }
+  .nameTip {
+    font-weight:bold; color:#12275e; font-size:12px;
+    background:rgba(255,255,255,.92); border:1px solid #12275e;
+  }
+  .lastSeenIcon { text-align:center; pointer-events:none; }
+  .lastSeenIcon .xm {
+    color:#d32f2f; font-size:26px; font-weight:bold; line-height:1;
+    text-shadow:0 0 3px #fff, 0 0 6px #fff;
+  }
+  .lastSeenIcon .xl {
+    color:#d32f2f; font-size:11px; font-weight:bold; white-space:nowrap;
+    text-shadow:0 0 3px #fff, 0 0 5px #fff;
+  }
+  .pickBanner {
+    display:none; background:#d32f2f; color:#fff; font-size:13px; font-weight:bold;
+    text-align:center; padding:7px; border-radius:6px; margin-bottom:8px;
+  }
+  .pickBanner.on { display:block; }
+
+  /* ===== 범례 ===== */
+  .legend {
+    display:flex; flex-wrap:wrap; gap:10px 16px; font-size:12.5px;
+    background:#f6f8fc; border:1px solid #dde3ef; border-radius:8px;
+    padding:10px 12px; margin-top:10px;
+  }
+  .legend span { display:flex; align-items:center; gap:6px; }
+  .lg {
+    width:12px; height:12px; border-radius:50%; display:inline-block;
+    border:1.5px solid #fff; box-shadow:0 0 0 1px #aab; flex:none;
+  }
+
+  /* ===== 사건 목록 카드 ===== */
+  .caseList { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:10px; margin-top:12px; }
+  .caseCard {
+    border:1.5px solid #dde3ef; border-radius:8px; padding:11px 12px;
+    cursor:pointer; background:#fff; transition:border-color .15s;
+  }
+  .caseCard:hover { border-color:#12275e; }
+  .caseCard.sel { border-color:#d32f2f; background:#fff6f6; }
+  .caseCard .nm { font-weight:bold; font-size:15px; color:#12275e; }
+  .caseCard .meta { font-size:12.5px; color:#66708a; margin-top:3px; }
+  .tag {
+    display:inline-block; font-size:11px; border-radius:10px; padding:1px 8px;
+    margin-left:6px; vertical-align:middle;
+  }
+  .tag.police { background:#fdeeb8; color:#7a5b00; }
+  .tag.citizen { background:#e4e6ea; color:#333; }
+  .tag.danger { background:#d32f2f; color:#fff; }
+  .tag.closed { background:#dfe3ea; color:#43506e; }
+  .btn.outline { background:#fff; color:#12275e; border:1.5px solid #12275e; }
+  .btn.outline:hover { background:#eef1f8; }
+  .syncStat { font-size:11.5px; color:#8a93a8; margin-top:6px; }
+  .syncStat.err { color:#d32f2f; }
+
+  /* ===== 실종자 정보 카드 ===== */
+  .personCard { display:flex; gap:16px; flex-wrap:wrap; }
+  .avatar {
+    width:110px; height:130px; border-radius:8px; background:#e8edf4;
+    border:2px solid #12275e; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; flex:none;
+  }
+  .avatar .face { font-size:52px; }
+  .avatar .cap { font-size:10.5px; color:#66708a; margin-top:4px; }
+  .avatar img { width:100%; height:100%; object-fit:cover; border-radius:6px; display:block; }
+  .photoPreview {
+    margin-top:8px; width:88px; height:104px; border-radius:7px; border:1.5px solid #ccd4e4;
+    background:#f6f8fc; object-fit:cover; display:none;
+  }
+  .photoPreview.on { display:block; }
+  .personInfo { flex:1; min-width:230px; }
+  .personInfo h3 { font-size:19px; color:#12275e; margin-bottom:6px; }
+  .infoTable { width:100%; border-collapse:collapse; font-size:13.5px; }
+  .infoTable th {
+    text-align:left; color:#66708a; font-weight:normal; white-space:nowrap;
+    padding:4px 12px 4px 0; width:82px; vertical-align:top;
+  }
+  .infoTable td { padding:4px 0; }
+  .redTxt { color:#d32f2f; font-weight:bold; }
+
+  /* ===== 버튼 ===== */
+  .btn {
+    background:#12275e; color:#fff; border:none; border-radius:7px;
+    padding:10px 16px; font-size:14px; cursor:pointer; font-weight:bold;
+  }
+  .btn:hover { background:#1e3d8f; }
+  .btn.red { background:#d32f2f; }
+  .btn.red:hover { background:#b71c1c; }
+  .btn.sm { padding:6px 12px; font-size:12.5px; font-weight:normal; }
+  .toolRow {
+    display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:12px;
+  }
+  .toolRow select {
+    padding:8px 10px; border:1.5px solid #dde3ef; border-radius:7px;
+    font-size:13px; background:#fff;
+  }
+
+  /* ===== 제보 리스트 ===== */
+  .reportItem {
+    border:1px solid #e2e7f0; border-radius:8px; padding:10px 12px;
+    margin-bottom:8px; cursor:pointer; background:#fff;
+  }
+  .reportItem:hover { border-color:#12275e; }
+  .reportItem .top { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+  .reportItem .tm { font-size:12px; color:#66708a; margin-left:auto; white-space:nowrap; }
+  .reportItem .cont { font-size:13px; margin-top:4px; color:#333; }
+  .relBadge { font-size:11px; border-radius:9px; padding:1px 8px; }
+  .relBadge.sure { background:#fde3e3; color:#b71c1c; }
+  .relBadge.maybe { background:#fff3d6; color:#8a6d00; }
+  .empty { color:#8a93a8; font-size:13px; padding:14px 0; text-align:center; }
+
+  /* ===== 경찰청 API 카드 ===== */
+  .apiList { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:10px; margin-top:12px; }
+  .apiCard {
+    border:1.5px solid #dde3ef; border-radius:8px; padding:11px 12px; background:#fff;
+  }
+  .apiCard img {
+    width:100%; height:180px; object-fit:cover; border-radius:6px;
+    background:#e8edf4; display:block;
+  }
+  .apiCard .nm { font-weight:bold; font-size:15px; color:#12275e; margin-top:8px; }
+  .apiCard .meta { font-size:12.5px; color:#66708a; margin-top:3px; }
+  .apiMsg { font-size:13px; color:#66708a; padding:12px 0; }
+  .apiMsg.err { color:#d32f2f; font-weight:bold; }
+
+  /* ===== 모달 ===== */
+  .modalBack {
+    display:none; position:fixed; inset:0; background:rgba(10,20,45,.55);
+    z-index:50; padding:18px; overflow-y:auto;
+  }
+  .modalBack.on { display:flex; align-items:flex-start; justify-content:center; }
+  .modal {
+    background:#fff; border-radius:10px; width:100%; max-width:460px;
+    padding:20px 18px; margin-top:4vh; position:relative;
+  }
+  .modal h3 { color:#12275e; font-size:17px; margin-bottom:12px; }
+  .modal .x {
+    position:absolute; top:12px; right:14px; background:none; border:none;
+    font-size:20px; cursor:pointer; color:#66708a;
+  }
+  .fld { margin-bottom:11px; }
+  .fld label { display:block; font-size:12.5px; color:#43506e; margin-bottom:4px; font-weight:bold; }
+  .fld input, .fld select, .fld textarea {
+    width:100%; padding:9px 10px; border:1.5px solid #ccd4e4; border-radius:7px;
+    font-size:14px; font-family:inherit; background:#fff;
+  }
+  .fld textarea { resize:vertical; min-height:64px; }
+  .fld input:focus, .fld select:focus, .fld textarea:focus { outline:2px solid #1e3d8f; }
+  .locRow { display:flex; gap:8px; align-items:center; }
+  .locStat { font-size:12.5px; color:#66708a; }
+  .locStat.ok { color:#2e7d32; font-weight:bold; }
+  .noteBox {
+    background:#f6f8fc; border-radius:7px; padding:9px 11px;
+    font-size:12px; color:#66708a; margin-bottom:12px;
+  }
+  .detailRow { display:flex; font-size:13.5px; padding:5px 0; border-bottom:1px solid #f0f2f7; }
+  .detailRow b { width:92px; flex:none; color:#66708a; font-weight:normal; }
+
+  /* ===== 로그인 ===== */
+  #loginOverlay {
+    position:fixed; inset:0; z-index:100; background:#12275e;
+    display:flex; align-items:center; justify-content:center; padding:18px;
+  }
+  .loginBox {
+    background:#fff; border-radius:12px; max-width:400px; width:100%;
+    padding:26px 22px;
+  }
+  .loginBox h2 { border:none; padding:0; font-size:20px; margin-bottom:4px; }
+  .loginBox .ls { font-size:12.5px; color:#66708a; margin-bottom:16px; }
+  #policeOk {
+    display:none; background:#e6f4e8; color:#2e7d32; font-size:12.5px;
+    font-weight:bold; border-radius:7px; padding:8px 10px; margin-bottom:11px;
+  }
+  #policeOk.on { display:block; }
+
+  footer {
+    text-align:center; font-size:11.5px; color:#8a93a8; padding:20px 12px 34px;
+  }
+
+  @media (max-width:640px) {
+    header h1 { font-size:18px; }
+    .personCard { flex-direction:row; }
+    .avatar { width:88px; height:104px; }
+    .avatar .face { font-size:40px; }
+    .caseList { grid-template-columns:1fr; }
+    .infoTable th { width:72px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="alertBar">[실종 경보] 실종 신고가 접수되어 있습니다. 목격하신 분은 즉시 제보해 주세요.</div>
+
+<header>
+  <div class="headInner">
+    <div>
+      <h1>실종자 수사 범위 좁히기</h1>
+      <div class="sub">team continuous · 시민 제보 기반 실종자 수색 협력 플랫폼</div>
+    </div>
+    <div class="userBox" id="userBox"></div>
+  </div>
+</header>
+
+<main>
+  <!-- ① 전체 사건 지도 -->
+  <section>
+    <h2>진행 중인 실종 사건 지도</h2>
+    <p class="hint">경찰과 가족이 신고한 실종 사건의 실종 지점이 실제 지도(OpenStreetMap) 위에 점으로 표시됩니다. 점 또는 아래 목록에서 실종자를 선택하면 상세 지도가 열립니다. 모든 데이터는 구글시트에서 자동으로 불러오며, 20초마다 자동 새로고침됩니다. (지도 표시에는 인터넷 연결이 필요합니다)</p>
+    <div class="pickBanner" id="pickBannerOverview">지도를 클릭해 실종 위치를 선택하세요 (ESC: 취소)</div>
+    <div class="mapWrap" id="overviewMap"></div>
+    <div class="legend">
+      <span><i class="lg" style="background:#f2b705"></i> 경찰이 등록한 실종 지점</span>
+      <span><i class="lg" style="background:#222"></i> 시민·가족이 등록한 실종 지점</span>
+      <span><i class="lg" style="background:#9aa1ab"></i> 사건 종료(수색 종료)</span>
+    </div>
+    <div class="caseList" id="caseList"></div>
+    <div class="toolRow">
+      <button class="btn red" id="btnAddPerson">+ 실종 신고 등록</button>
+      <button class="btn outline sm" id="btnRefreshSheet" type="button">🔄 지금 새로고침</button>
+    </div>
+    <div class="syncStat" id="sheetSyncStat"></div>
+  </section>
+
+  <!-- ② 선택된 실종자 상세 -->
+  <section id="detailSection" style="display:none">
+    <h2>실종자 정보</h2>
+    <div class="personCard" id="personCard"></div>
+
+    <h2 style="margin-top:22px">목격·이동 경로 지도</h2>
+    <p class="hint">마지막 목격 지점을 중심으로 실제 지도가 표시됩니다. 점(마커)을 클릭하면 상세 제보 내용을 볼 수 있습니다.</p>
+    <div class="pickBanner" id="pickBannerDetail">지도를 클릭해 제보 위치를 선택하세요 (ESC: 취소)</div>
+    <div class="mapWrap" id="detailMap"></div>
+    <div class="legend">
+      <span><i class="lg" style="background:#1565d8"></i> 평소 이동 경로 (가족 제보)</span>
+      <span><i class="lg" style="background:#e53935"></i> 목격 제보 (시민)</span>
+      <span><i class="lg" style="background:#8e0000"></i> 가게 제보 — 방문함</span>
+      <span><i class="lg" style="background:#2e7d32"></i> 가게 제보 — 방문 안 함</span>
+      <span><i class="lg" style="background:#fff;box-shadow:0 0 0 1px #d32f2f"></i> <b style="color:#d32f2f">✕</b> 마지막 목격 지점</span>
+    </div>
+    <div class="toolRow">
+      <button class="btn red" id="btnAddReport">📢 목격 제보 등록</button>
+      <select id="timeFilter" title="시간대 필터">
+        <option value="all">전체 기간 보기</option>
+        <option value="24">최근 24시간 제보만</option>
+        <option value="48">최근 2일 제보만</option>
+      </select>
+    </div>
+
+    <h2 style="margin-top:22px">제보 리스트 <span style="font-size:12px;color:#66708a;font-weight:normal">(최근 목격 시간순)</span></h2>
+    <div id="reportList"></div>
+  </section>
+
+  <!-- ③ 경찰청 공개 실종자 정보 (index_api.html 연동) -->
+  <section>
+    <h2>경찰청 공개 실종자 정보</h2>
+    <p class="hint">경찰청 실종자 공개 API에서 실제 실종자 정보를 불러와 구글시트 DB에 자동으로 등록합니다(중복 등록 방지). 등록된 사람은 위쪽 "진행 중인 실종 사건 지도" 목록에 자동으로 함께 나타나며, 이후 API 응답에서 사라진 사람(발견·해제 추정)은 삭제되지 않고 자동으로 "사건 종료" 상태로 전환됩니다. 완전 삭제는 경찰 인증 계정만 가능합니다.</p>
+    <button class="btn" id="btnLoadApi">경찰청 실종자 불러오기</button>
+    <div class="apiMsg" id="apiGeoStat" style="display:none"></div>
+    <div id="apiList" class="apiList"></div>
+  </section>
+</main>
+
+<footer>
+  본 사이트는 오현고등학교·제주여자고등학교 합동 해커톤 프로토타입입니다.<br>
+  등장하는 인물·제보는 모두 가상의 목업 데이터입니다. · team continuous
+</footer>
+
+<!-- 제보 등록 모달 -->
+<div class="modalBack" id="mReport">
+  <div class="modal">
+    <button class="x" data-close="mReport">✕</button>
+    <h3>제보 등록</h3>
+    <form id="reportForm">
+      <div class="fld">
+        <label>제보 종류</label>
+        <select id="rType">
+          <option value="sighting">목격 제보 (시민)</option>
+          <option value="route">평소 이동 경로 (가족)</option>
+          <option value="store">방문 여부 제보 (협력 가게)</option>
+        </select>
+      </div>
+      <div class="fld">
+        <label>위치</label>
+        <div class="locRow">
+          <button type="button" class="btn sm" id="btnPickReport">지도에서 위치 선택</button>
+          <span class="locStat" id="rLocStat">아직 선택 안 됨</span>
+        </div>
+      </div>
+      <div class="fld">
+        <label>장소 이름</label>
+        <input type="text" id="rLabel" placeholder="예: 연오공원 산책로 입구" required>
+      </div>
+      <div class="fld" id="fldTime">
+        <label>목격 날짜/시간</label>
+        <input type="datetime-local" id="rTime">
+      </div>
+      <div class="fld" id="fldVisited" style="display:none">
+        <label>방문 여부</label>
+        <select id="rVisited">
+          <option value="yes">방문했음 (또는 방문한 것 같음)</option>
+          <option value="no">방문하지 않았음</option>
+        </select>
+      </div>
+      <div class="fld">
+        <label id="rContentLabel">목격 당시 특이사항 (무엇을 하고 있었는지 등)</label>
+        <textarea id="rContent" placeholder="예: 버스정류장에 혼자 앉아 있었음"></textarea>
+      </div>
+      <div class="fld" id="fldRel">
+        <label>제보 신뢰도</label>
+        <select id="rRel">
+          <option value="sure">실종자가 확실함</option>
+          <option value="maybe">비슷한 사람을 본 것 같음</option>
+        </select>
+      </div>
+      <div class="fld">
+        <label>제보자 이름 / 연락처</label>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="rName" placeholder="이름" style="flex:1">
+          <input type="text" id="rPhone" placeholder="010-0000-0000" style="flex:1.4">
+        </div>
+      </div>
+      <div class="noteBox">제보자 연락처 전체는 경찰 인증 계정(@police.go.kr)에만 공개됩니다.</div>
+      <button type="submit" class="btn red" style="width:100%">제보 등록하기</button>
+    </form>
+  </div>
+</div>
+
+<!-- 실종 신고 등록 모달 -->
+<div class="modalBack" id="mPerson">
+  <div class="modal">
+    <button class="x" data-close="mPerson">✕</button>
+    <h3>실종 신고 등록</h3>
+    <form id="personForm">
+      <div class="fld">
+        <label>이름</label>
+        <input type="text" id="pName" required placeholder="실종자 이름">
+      </div>
+      <div class="fld">
+        <label>실종자 사진 (선택)</label>
+        <input type="file" id="pPhoto" accept="image/*">
+        <img id="pPhotoPreview" class="photoPreview" alt="사진 미리보기">
+      </div>
+      <div class="fld" style="display:flex;gap:8px">
+        <div style="flex:1">
+          <label>나이</label>
+          <input type="number" id="pAge" min="0" max="120" required>
+        </div>
+        <div style="flex:1">
+          <label>성별</label>
+          <select id="pGender"><option>남성</option><option>여성</option></select>
+        </div>
+      </div>
+      <div class="fld">
+        <label>실종 지역 (주소·동네 이름)</label>
+        <input type="text" id="pRegion" required placeholder="예: 제주시 연동">
+      </div>
+      <div class="fld">
+        <label>실종 지점</label>
+        <div class="locRow">
+          <button type="button" class="btn sm" id="btnPickPerson">지도에서 위치 선택</button>
+          <span class="locStat" id="pLocStat">아직 선택 안 됨</span>
+        </div>
+      </div>
+      <div class="fld">
+        <label>실종 일시</label>
+        <input type="datetime-local" id="pTime" required>
+      </div>
+      <div class="fld">
+        <label>입고 있던 옷</label>
+        <input type="text" id="pClothes" placeholder="예: 회색 등산복 상의, 검정 바지">
+      </div>
+      <div class="fld">
+        <label>특징</label>
+        <textarea id="pFeatures" placeholder="예: 키 165cm, 마른 체형, 치매 증상 있음"></textarea>
+      </div>
+      <button type="submit" class="btn red" style="width:100%">실종 신고 등록하기</button>
+    </form>
+  </div>
+</div>
+
+<!-- 점 상세 정보 모달 -->
+<div class="modalBack" id="mDetail">
+  <div class="modal">
+    <button class="x" data-close="mDetail">✕</button>
+    <h3 id="dTitle">상세 정보</h3>
+    <div id="dBody"></div>
+  </div>
+</div>
+
+<!-- 로그인 -->
+<div id="loginOverlay" style="display:none">
+  <div class="loginBox">
+    <h2>실종자 수사 범위 좁히기</h2>
+    <p class="ls">team continuous · 로그인 후 이용할 수 있습니다.<br>@police.go.kr 이메일로 로그인하면 경찰로 인증됩니다.</p>
+    <form id="loginForm">
+      <div class="fld">
+        <label>이메일</label>
+        <input type="email" id="loginEmail" required placeholder="example@police.go.kr">
+      </div>
+      <div id="policeOk">✔ 경찰 공식 도메인(@police.go.kr) 인증 — 경찰·수사 관계자로 로그인됩니다.</div>
+      <div class="fld">
+        <label>이름</label>
+        <input type="text" id="loginName" required placeholder="이름 또는 별명">
+      </div>
+      <div class="fld" id="roleFld">
+        <label>사용자 유형</label>
+        <select id="loginRole">
+          <option value="citizen">일반 시민</option>
+          <option value="store">협력 가게</option>
+        </select>
+      </div>
+      <button type="submit" class="btn" style="width:100%">시작하기</button>
+    </form>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ==================== 상수 · 상태 ==================== */
+var LS_DATA = 'continuous_data_v4'; // v4: 구글시트를 유일한 데이터 원본으로 전환 (로컬은 오프라인 캐시 용도)
+var LS_USER = 'continuous_user_v1';
+var ROLE_LABEL = { police:'경찰·수사 관계자', family:'실종자 가족', citizen:'일반 시민', store:'협력 가게' };
+var SHEET_POLL_MS = 20000; // 20초마다 자동으로 구글시트와 동기화 → 다른 사용자의 등록/삭제/제보가 반영됨
+var CLOSED_MAP_COLOR = '#9aa1ab'; // 사건 종료 상태의 지도 점 색상 (기존 팔레트와 겹치지 않는 회색 계열)
+var JEJU_CENTER = [33.38, 126.53];
+var JEJU_BOUNDS = [[33.10, 126.05], [33.62, 126.99]]; // 제주도 전역을 포함하는 고정 범위 — 지도 이동/축소를 이 범위로 제한
+
+var state = {
+  user: null,
+  data: null,
+  selectedId: null,
+  filter: 'all',
+  picking: null,        // {form:'report'|'person'}
+  pickedReport: null,   // {lat,lng}
+  pickedPerson: null,   // {lat,lng}
+  highlightId: null,
+  everFitOverview: false
+};
+
+function $(s){ return document.querySelector(s); }
+function esc(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function uid(){ return 'id' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+function pad(n){ return String(n).padStart(2,'0'); }
+function fmt(iso){
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return '-';
+  return (d.getMonth()+1) + '/' + d.getDate() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+function rel(iso){
+  var t = new Date(iso).getTime();
+  if (isNaN(t)) return '';
+  var diff = Date.now() - t;
+  if (diff < 0) diff = 0;
+  var m = Math.floor(diff / 60000);
+  if (m < 60) return Math.max(1, m) + '분 전';
+  var h = Math.floor(m / 60);
+  if (h < 24) return h + '시간 전';
+  return Math.floor(h / 24) + '일 전';
+}
+function nowLocalInput(){
+  var d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+}
+function nowTimeLabel(){
+  var d = new Date();
+  return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+}
+function maskContact(c){
+    if (!c) return "-";
+
+    c = String(c);
+
+    // 전화번호가 아니면 그대로
+    if (!c.includes("-") && !/\d/.test(c))
+        return c;
+
+    return c.replace(/(\d{3})[- ]?(\d{3,4})[- ]?(\d{4})/, "$1-****-$3");
+}
+
+function statusTag(p){
+  return p.status === 'closed'
+    ? '<span class="tag closed">사건 종료</span>'
+    : '<span class="tag danger">수색 중</span>';
+}
+// 로그인한 이메일이 이 실종 신고를 등록한 본인인지 확인 (등록 당시 이메일과 대소문자/공백 무시 비교)
+function isRegistrant(p){
+  return !!(state.user && state.user.email && p.registrantEmail &&
+    state.user.email.trim().toLowerCase() === p.registrantEmail.trim().toLowerCase());
+}
+function isPolice(){
+  return !!(state.user && state.user.role === 'police');
+}
+// 경찰(관리자)이거나 본인이 등록한 신고라면 상태 변경 가능
+function canManageStatus(p){
+  return isPolice() || isRegistrant(p);
+}
+// 경찰이거나, 그 제보/이동경로를 등록할 때 로그인했던 본인 이메일과 같으면 삭제 가능
+function canManageReport(r){
+  return isPolice() || !!(state.user && state.user.email && r.reporterEmail &&
+    state.user.email.trim().toLowerCase() === r.reporterEmail.trim().toLowerCase());
+}
+
+/* ==================== 데이터 (구글시트가 유일한 원본, 로컬은 오프라인 캐시) ==================== */
+function emptyData(){ return { persons: [] }; }
+
+// 페이지를 열자마자(시트 응답이 오기 전) 잠깐 보여줄 캐시. 실제 데이터는 항상 loadFromSheet()가 덮어씀.
+function loadCachedData(){
+  try {
+    var d = JSON.parse(localStorage.getItem(LS_DATA));
+    if (d && d.persons) return normalizeData(d);
+  } catch(e){}
+  return emptyData();
+}
+function normalizeData(d){
+  d.persons.forEach(function(p){
+    if (p.status !== 'searching' && p.status !== 'closed') p.status = 'searching';
+    if (p.registrantEmail == null) p.registrantEmail = '';
+    if (!Array.isArray(p.routes)) p.routes = [];
+    if (!Array.isArray(p.reports)) p.reports = [];
+  });
+  return d;
+}
+function saveData(){ localStorage.setItem(LS_DATA, JSON.stringify(state.data)); }
+function person(){
+  for (var i = 0; i < state.data.persons.length; i++)
+    if (state.data.persons[i].id === state.selectedId) return state.data.persons[i];
+  return null;
+}
+
+/* ==================== Leaflet 지도 ==================== */
+var overviewMap = null, detailMap = null;
+var overviewLayer = null, detailLayer = null;
+var reportMarkers = {};   // reportId -> Leaflet 마커 (리스트 클릭 시 강조·이동용)
+
+function addTiles(map){
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  }).addTo(map);
+}
+
+function pickCoord(e){
+  return {
+    lat: Math.round(e.latlng.lat * 1e5) / 1e5,
+    lng: Math.round(e.latlng.lng * 1e5) / 1e5
+  };
+}
+
+function initMaps(){
+  // ① 전체 사건 지도 — 제주도 영역으로 고정 (그 밖으로 이동·축소 불가, 항상 제주도만 보임)
+  overviewMap = L.map('overviewMap', {
+    maxBounds: JEJU_BOUNDS,
+    maxBoundsViscosity: 1.0, // 경계에서 더 이상 밀려나지 않도록 완전히 고정
+    minZoom: 9
+  });
+  addTiles(overviewMap);
+  overviewMap.setView(JEJU_CENTER, 10); // 제주도 전역, 항상 이 시점으로 고정
+  overviewLayer = L.layerGroup().addTo(overviewMap);
+  overviewMap.on('click', function(e){
+    if (state.picking && state.picking.form === 'person') {
+      state.pickedPerson = pickCoord(e);
+      $('#pLocStat').textContent = '선택 완료 (위도 ' + state.pickedPerson.lat + ', 경도 ' + state.pickedPerson.lng + ')';
+      $('#pLocStat').classList.add('ok');
+      stopPicking();
+      openModal('mPerson');
+    }
+  });
+
+  // ② 상세 지도
+  detailMap = L.map('detailMap');
+  addTiles(detailMap);
+  detailMap.setView([33.4885, 126.4920], 15);
+  detailLayer = L.layerGroup().addTo(detailMap);
+  detailMap.on('click', function(e){
+    if (state.picking && state.picking.form === 'report') {
+      state.pickedReport = pickCoord(e);
+      $('#rLocStat').textContent = '선택 완료 (위도 ' + state.pickedReport.lat + ', 경도 ' + state.pickedReport.lng + ')';
+      $('#rLocStat').classList.add('ok');
+      stopPicking();
+      openModal('mReport');
+    }
+  });
+}
+
+function renderOverview(fit){
+  overviewLayer.clearLayers();
+  state.data.persons.forEach(function(p){
+    var sel = p.id === state.selectedId;
+    var baseColor = p.status === 'closed'
+      ? CLOSED_MAP_COLOR
+      : (p.registeredBy === 'police' ? '#f2b705' : '#222222');
+    var m = L.circleMarker([p.lastSeen.lat, p.lastSeen.lng], {
+      radius: sel ? 11 : 8,
+      fillColor: baseColor,
+      fillOpacity: 1,
+      color: sel ? '#d32f2f' : '#ffffff',
+      weight: sel ? 3 : 2
+    });
+    m.bindTooltip(esc(p.name), { permanent:true, direction:'top', offset:[0,-9], className:'nameTip' });
+    m.on('click', function(){
+      if (state.picking) return; // 위치 선택 중에는 지도 클릭으로 처리
+      selectPerson(p.id);
+    });
+    m.addTo(overviewLayer);
+  });
+  // 지도는 항상 제주도 전역 시점(JEJU_CENTER)으로 고정되므로, 마커 수/위치에 따라
+  // 자동으로 확대·이동(fitBounds)하지 않습니다. (fit 인자는 하위 호환을 위해 남겨두되 더 이상 사용하지 않음)
+}
+
+function renderCaseList(){
+  var html = '';
+  state.data.persons.forEach(function(p){
+    var tag = p.registeredBy === 'police'
+      ? '<span class="tag police">경찰 등록</span>'
+      : '<span class="tag citizen">시민·가족 등록</span>';
+    html += '<div class="caseCard' + (p.id === state.selectedId ? ' sel' : '') + '" data-person="' + p.id + '">' +
+      '<div class="nm">' + esc(p.name) + ' (' + esc(p.age) + '세 · ' + esc(p.gender) + ')' + tag + '</div>' +
+      '<div class="meta">' + esc(p.region) + ' · 실종 ' + fmt(p.missingAt) + ' (' + rel(p.missingAt) + ')</div>' +
+      '<div class="meta">제보 ' + p.reports.length + '건 ' + statusTag(p) + '</div>' +
+      '</div>';
+  });
+  if (!state.data.persons.length) {
+    html = '<div class="empty" style="grid-column:1/-1">등록된 실종 신고가 없습니다.</div>';
+  }
+  $('#caseList').innerHTML = html;
+}
+
+function cutoffTime(){
+  if (state.filter === 'all') return 0;
+  return Date.now() - Number(state.filter) * 3600 * 1000;
+}
+
+function dotColor(r){
+  if (r.type === 'sighting') return '#e53935';
+  if (r.type === 'store') return r.visited ? '#8e0000' : '#2e7d32';
+  return '#1565d8';
+}
+
+function renderDetailMap(){
+  var p = person();
+  if (!p) return;
+  detailLayer.clearLayers();
+  reportMarkers = {};
+  var co = cutoffTime();
+
+  // 평소 이동 경로 (파란 점) — 시간 필터와 무관하게 항상 표시
+  p.routes.forEach(function(r){
+    var m = L.circleMarker([r.lat, r.lng], {
+      radius:7, fillColor:'#1565d8', fillOpacity:1, color:'#ffffff', weight:2
+    });
+    m.bindTooltip(esc(r.label), { permanent:true, direction:'top', offset:[0,-8], className:'nameTip' });
+    m.on('click', function(){
+      if (state.picking) return;
+      showRouteDetail(r);
+    });
+    m.addTo(detailLayer);
+  });
+
+  // 목격 제보 · 가게 제보
+  p.reports.forEach(function(r){
+    if (co && new Date(r.time).getTime() < co) return;
+    var hl = r.id === state.highlightId;
+    var m = L.circleMarker([r.lat, r.lng], {
+      radius: hl ? 10 : 7,
+      fillColor: dotColor(r), fillOpacity: 1,
+      color: hl ? '#12275e' : '#ffffff',
+      weight: hl ? 3 : 2
+    });
+    m.bindTooltip(esc(r.label), { direction:'top', offset:[0,-8] });
+    m.on('click', function(){
+      if (state.picking) return;
+      state.highlightId = r.id;
+      renderDetailMap();
+      showReportDetail(r);
+    });
+    m.addTo(detailLayer);
+    reportMarkers[r.id] = m;
+  });
+
+  // 마지막 목격 지점 (✕ 마커 + 점선 원, 반경 약 120m)
+  L.circle([p.lastSeen.lat, p.lastSeen.lng], {
+    radius:120, color:'#d32f2f', weight:2, dashArray:'6,5', fill:false
+  }).addTo(detailLayer);
+  L.marker([p.lastSeen.lat, p.lastSeen.lng], {
+    interactive: false,
+    icon: L.divIcon({
+      className:'lastSeenIcon',
+      html:'<div class="xm">✕</div><div class="xl">마지막 목격 지점</div>',
+      iconSize:[140, 46], iconAnchor:[70, 15]
+    })
+  }).addTo(detailLayer);
+}
+
+/* ==================== 실종자 카드 · 제보 리스트 ==================== */
+function avatarHtml(p){
+  if (p.photo) {
+    return '<div class="avatar"><img src="' + esc(p.photo) + '" alt="실종자 사진" ' +
+      'onerror="avatarPhotoError(this,\'' + p.face + '\')"></div>';
+  }
+  return '<div class="avatar"><div class="face">' + p.face + '</div><div class="cap">사진 없음</div></div>';
+}
+function avatarPhotoError(img, face){
+  img.parentNode.innerHTML = '<div class="face">' + face + '</div><div class="cap">사진 없음</div>';
+}
+
+function renderPersonCard(){
+  var p = person();
+  if (!p) return;
+  var canSeeEmail = state.user && (state.user.role === 'police' || isRegistrant(p));
+  var emailRow = (canSeeEmail && p.registrantEmail)
+    ? '<tr><th>등록자 이메일</th><td>' + esc(p.registrantEmail) + '</td></tr>' : '';
+  var statusBtn = '';
+  if (canManageStatus(p)) {
+    statusBtn = p.status === 'closed'
+      ? '<button type="button" class="btn outline sm" id="btnReopenCase" style="margin-top:10px">🔄 다시 수색 중으로 전환</button>'
+      : '<button type="button" class="btn red sm" id="btnCloseCase" style="margin-top:10px">✅ 사건 종료로 변경</button>';
+  }
+  var deleteBtn = '';
+  if (isPolice()) {
+    deleteBtn = '<button type="button" class="btn outline sm" id="btnDeleteCase" style="margin-top:10px;margin-left:8px;border-color:#d32f2f;color:#d32f2f">🗑 삭제 (경찰 전용)</button>';
+  }
+  $('#personCard').innerHTML =
+    avatarHtml(p) +
+    '<div class="personInfo">' +
+      '<h3>' + esc(p.name) + ' ' + statusTag(p) + '</h3>' +
+      '<table class="infoTable">' +
+        '<tr><th>나이 / 성별</th><td>' + esc(p.age) + '세 / ' + esc(p.gender) + '</td></tr>' +
+        '<tr><th>실종 지역</th><td class="redTxt">' + esc(p.region) + ' (' + esc(p.lastSeen.label) + ')</td></tr>' +
+        '<tr><th>실종 일시</th><td>' + fmt(p.missingAt) + ' (' + rel(p.missingAt) + ')</td></tr>' +
+        '<tr><th>입고 있던 옷</th><td>' + esc(p.clothes || '-') + '</td></tr>' +
+        '<tr><th>특징</th><td>' + esc(p.features || '-') + '</td></tr>' +
+        emailRow +
+      '</table>' +
+      statusBtn + deleteBtn +
+    '</div>';
+  if ($('#btnCloseCase')) $('#btnCloseCase').addEventListener('click', function(){ setPersonStatus(p, 'closed'); });
+  if ($('#btnReopenCase')) $('#btnReopenCase').addEventListener('click', function(){ setPersonStatus(p, 'searching'); });
+  if ($('#btnDeleteCase')) $('#btnDeleteCase').addEventListener('click', function(){ deletePerson(p); });
+}
+
+function deletePerson(p){
+  if (!isPolice()) return; // 경찰 계정만 삭제 가능
+  if (!confirm(esc(p.name) + ' 실종 신고를 삭제하시겠습니까? 되돌릴 수 없습니다.')) return;
+  // 구글시트에서 먼저 삭제(제보도 함께 연쇄 삭제)한 뒤, 화면에서도 즉시 제거.
+  // 다른 기기는 다음 자동 동기화(20초 이내) 때 목록에서 자동으로 사라짐.
+  sendDeleteToSheet(p);
+  var idx = state.data.persons.findIndex(function(x){ return x.id === p.id; });
+  if (idx > -1) state.data.persons.splice(idx, 1);
+  saveData();
+  state.selectedId = null;
+  $('#detailSection').style.display = 'none';
+  renderOverview(true);
+  renderCaseList();
+  updateAlertBar();
+  setTimeout(loadFromSheet, 1500); // 서버 반영 확인차 재동기화
+}
+
+function setPersonStatus(p, newStatus){
+  if (!canManageStatus(p)) return; // 등록 본인이거나 경찰(관리자)만 변경 가능
+  p.status = newStatus;
+  saveData();
+  renderPersonCard();
+  renderCaseList();
+  sendStatusUpdateToSheet(p);
+  alert(newStatus === 'closed' ? '사건이 종료 처리되었습니다.' : '다시 수색 중 상태로 전환되었습니다.');
+  setTimeout(loadFromSheet, 1500);
+}
+
+function relBadge(r){
+  if (r.rel === 'sure') return '<span class="relBadge sure">실종자가 확실함</span>';
+  if (r.rel === 'maybe') return '<span class="relBadge maybe">비슷한 사람을 본 것 같음</span>';
+  return '';
+}
+function typeChip(r){
+  var c = dotColor(r);
+  var t = r.type === 'sighting' ? '목격 제보' : (r.visited ? '가게 · 방문함' : '가게 · 방문 안 함');
+  return '<i class="lg" style="background:' + c + '"></i> <b>' + t + '</b>';
+}
+
+function renderReportList(){
+  var p = person();
+  if (!p) return;
+  var co = cutoffTime();
+  var list = p.reports.filter(function(r){ return !co || new Date(r.time).getTime() >= co; });
+  list.sort(function(a, b){ return new Date(b.time) - new Date(a.time); });
+  if (!list.length) {
+    $('#reportList').innerHTML = '<div class="empty">해당 기간에 등록된 제보가 없습니다.</div>';
+    return;
+  }
+  var html = '';
+  list.forEach(function(r){
+    html += '<div class="reportItem" data-report="' + r.id + '">' +
+      '<div class="top">' + typeChip(r) + relBadge(r) +
+      '<span class="tm">' + fmt(r.time) + ' · ' + rel(r.time) + '</span></div>' +
+      '<div class="cont">📍 ' + esc(r.label) + ' — ' + esc(r.content || '') + '</div>' +
+      '</div>';
+  });
+  $('#reportList').innerHTML = html;
+}
+
+function renderDetail(){
+  renderPersonCard();
+  renderDetailMap();
+  renderReportList();
+}
+
+function selectPerson(id){
+  state.selectedId = id;
+  state.highlightId = null;
+  $('#detailSection').style.display = 'block';
+  renderOverview();
+  renderCaseList();
+  renderDetail();
+  var p = person();
+  detailMap.invalidateSize(); // 숨김 해제 직후 크기 재계산
+  if (p) detailMap.setView([p.lastSeen.lat, p.lastSeen.lng], 15);
+  $('#detailSection').scrollIntoView({ behavior:'smooth' });
+}
+
+/* ==================== 점 상세 모달 ==================== */
+function openModal(id){ $('#' + id).classList.add('on'); }
+function closeModal(id){ $('#' + id).classList.remove('on'); }
+
+function showRouteDetail(r){
+  $('#dTitle').textContent = '평소 이동 경로 (가족 제보)';
+  var delBtn = canManageReport(r)
+    ? '<button type="button" class="btn outline sm" id="btnDeleteReport" style="margin-top:12px;border-color:#d32f2f;color:#d32f2f">🗑 이 경로 삭제</button>'
+    : '';
+  $('#dBody').innerHTML =
+    '<div class="detailRow"><b>장소</b><span>' + esc(r.label) + '</span></div>' +
+    '<div class="detailRow"><b>내용</b><span>' + esc(r.note || '-') + '</span></div>' +
+    '<div class="noteBox" style="margin-top:12px">가족이 등록한 평소 자주 다니던 장소입니다. 수사 범위를 좁히는 참고 자료로 활용됩니다.</div>' +
+    delBtn;
+  openModal('mDetail');
+  if ($('#btnDeleteReport')) $('#btnDeleteReport').addEventListener('click', function(){ deleteReportItem(r, true); });
+}
+
+function showReportDetail(r){
+  console.log(r);
+  $('#dTitle').textContent = r.type === 'sighting' ? '목격 제보 상세' : '협력 가게 제보 상세';
+  var rows =
+    '<div class="detailRow"><b>장소</b><span>' + esc(r.label) + '</span></div>' +
+    '<div class="detailRow"><b>제보 시간</b><span>' + fmt(r.time) + ' (' + rel(r.time) + ')</span></div>';
+  if (r.type === 'store')
+    rows += '<div class="detailRow"><b>방문 여부</b><span style="color:' + (r.visited ? '#8e0000' : '#2e7d32') + ';font-weight:bold">' +
+            (r.visited ? '방문함 (추정 포함)' : '방문하지 않음') + '</span></div>';
+  rows += '<div class="detailRow"><b>내용</b><span>' + esc(r.content || '-') + '</span></div>';
+  if (r.type === 'sighting')
+    rows += '<div class="detailRow"><b>신뢰도</b><span>' + relBadge(r) + '</span></div>';
+  rows +=
+    '<div class="detailRow"><b>제보자</b><span>' + esc(r.reporter || '익명') + '</span></div>' +
+    '<div class="detailRow"><b>연락처</b><span>' + esc(maskContact(r.contact)) + '</span></div>';
+  if (!(state.user && state.user.role === 'police'))
+    rows += '<div class="noteBox" style="margin-top:12px">연락처 전체는 경찰 인증 계정(@police.go.kr)에만 공개됩니다.</div>';
+  if (canManageReport(r))
+    rows += '<button type="button" class="btn outline sm" id="btnDeleteReport" style="margin-top:12px;border-color:#d32f2f;color:#d32f2f">🗑 이 제보 삭제</button>';
+  $('#dBody').innerHTML = rows;
+  openModal('mDetail');
+  if ($('#btnDeleteReport')) $('#btnDeleteReport').addEventListener('click', function(){ deleteReportItem(r, false); });
+}
+
+// 제보 또는 이동경로 삭제 — 제보를 등록했던 본인(로그인 이메일 일치) 또는 경찰만 실행 가능(canManageReport에서 이미 확인됨)
+function deleteReportItem(r, isRoute){
+  var p = person();
+  if (!p) return;
+  if (!canManageReport(r)) return;
+  if (!confirm('이 ' + (isRoute ? '이동 경로' : '제보') + '를 삭제하시겠습니까? 되돌릴 수 없습니다.')) return;
+  sendDeleteReportToSheet(r.id);
+  if (isRoute) {
+    var idx = p.routes.findIndex(function(x){ return x.id === r.id; });
+    if (idx > -1) p.routes.splice(idx, 1);
+  } else {
+    var idx2 = p.reports.findIndex(function(x){ return x.id === r.id; });
+    if (idx2 > -1) p.reports.splice(idx2, 1);
+  }
+  saveData();
+  closeModal('mDetail');
+  renderDetail();
+  alert('삭제되었습니다.');
+  setTimeout(loadFromSheet, 1500);
+}
+
+function findReport(id){
+  var p = person();
+  if (!p) return null;
+  for (var i = 0; i < p.reports.length; i++) if (p.reports[i].id === id) return p.reports[i];
+  return null;
+}
+function findRoute(id){
+  var p = person();
+  if (!p) return null;
+  for (var i = 0; i < p.routes.length; i++) if (p.routes[i].id === id) return p.routes[i];
+  return null;
+}
+
+/* ==================== 위치 선택 모드 공통 ==================== */
+function stopPicking(){
+  state.picking = null;
+  $('#overviewMap').classList.remove('picking');
+  $('#detailMap').classList.remove('picking');
+  $('#pickBannerOverview').classList.remove('on');
+  $('#pickBannerDetail').classList.remove('on');
+}
+
+$('#caseList').addEventListener('click', function(e){
+  var t = e.target.closest('[data-person]');
+  if (t) selectPerson(t.getAttribute('data-person'));
+});
+
+$('#reportList').addEventListener('click', function(e){
+  var t = e.target.closest('[data-report]');
+  if (!t) return;
+  var r = findReport(t.getAttribute('data-report'));
+  if (r) {
+    state.highlightId = r.id;
+    renderDetailMap();
+    if (reportMarkers[r.id]) detailMap.panTo(reportMarkers[r.id].getLatLng());
+    showReportDetail(r);
+  }
+});
+
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape') {
+    if (state.picking) {
+      var wasForm = state.picking.form;
+      stopPicking();
+      openModal(wasForm === 'person' ? 'mPerson' : 'mReport');
+    }
+  }
+});
+
+/* ==================== 제보 등록 (구글시트에 즉시 전송) ==================== */
+$('#btnAddReport').addEventListener('click', function(){
+  state.pickedReport = null;
+  $('#reportForm').reset();
+  $('#rTime').value = nowLocalInput();
+  $('#rLocStat').textContent = '아직 선택 안 됨';
+  $('#rLocStat').classList.remove('ok');
+  updateReportFields();
+  openModal('mReport');
+});
+
+$('#rType').addEventListener('change', updateReportFields);
+function updateReportFields(){
+  var t = $('#rType').value;
+  $('#fldTime').style.display    = (t === 'route') ? 'none' : 'block';
+  $('#fldRel').style.display     = (t === 'sighting') ? 'block' : 'none';
+  $('#fldVisited').style.display = (t === 'store') ? 'block' : 'none';
+  $('#rContentLabel').textContent =
+    t === 'sighting' ? '목격 당시 특이사항 (무엇을 하고 있었는지 등)' :
+    t === 'route'    ? '메모 (얼마나 자주 가는 곳인지 등)' :
+                       '상세 내용 (방문 시간, CCTV 확인 여부 등)';
+}
+
+$('#btnPickReport').addEventListener('click', function(){
+  closeModal('mReport');
+  state.picking = { form:'report' };
+  $('#detailMap').classList.add('picking');
+  $('#pickBannerDetail').classList.add('on');
+  $('#detailMap').scrollIntoView({ behavior:'smooth', block:'center' });
+});
+
+$('#reportForm').addEventListener('submit', function(e){
+  e.preventDefault();
+  var p = person();
+  if (!p) return;
+  if (!state.pickedReport) { alert('지도에서 위치를 먼저 선택해 주세요.'); return; }
+  var t = $('#rType').value;
+  if (t === 'route') {
+    var route = {
+      id: uid(), lat: state.pickedReport.lat, lng: state.pickedReport.lng,
+      label: $('#rLabel').value.trim(), note: $('#rContent').value.trim(),
+      reporterEmail: state.user ? state.user.email : ''
+    };
+    p.routes.push(route);
+    sendReportToSheet(p.id, route, 'route');
+  } else {
+    var timeVal = $('#rTime').value;
+    var report = {
+      id: uid(), type: t, lat: state.pickedReport.lat, lng: state.pickedReport.lng,
+      label: $('#rLabel').value.trim(),
+      time: timeVal ? new Date(timeVal).toISOString() : new Date().toISOString(),
+      content: $('#rContent').value.trim(),
+      rel: t === 'sighting' ? $('#rRel').value : undefined,
+      visited: t === 'store' ? ($('#rVisited').value === 'yes') : undefined,
+      reporter: $('#rName').value.trim() || (state.user ? state.user.name : '익명'),
+      contact: $('#rPhone').value.trim(),
+      reporterEmail: state.user ? state.user.email : ''
+    };
+    p.reports.push(report);
+    sendReportToSheet(p.id, report, t);
+  }
+  saveData();
+  closeModal('mReport');
+  renderDetail();
+  renderCaseList();
+  alert('제보가 등록되었습니다. 소중한 제보 감사합니다.');
+  setTimeout(loadFromSheet, 1500); // 구글시트에 실제로 저장됐는지 재동기화로 확인
+});
+
+/* ==================== 실종 신고 등록 (구글시트에 즉시 전송) ==================== */
+$('#btnAddPerson').addEventListener('click', function(){
+  state.pickedPerson = null;
+  $('#personForm').reset();
+  $('#pTime').value = nowLocalInput();
+  $('#pLocStat').textContent = '아직 선택 안 됨';
+  $('#pLocStat').classList.remove('ok');
+  $('#pPhotoPreview').classList.remove('on');
+  $('#pPhotoPreview').src = '';
+  openModal('mPerson');
+});
+
+$('#pPhoto').addEventListener('change', function(){
+  var file = this.files && this.files[0];
+  if (!file) { $('#pPhotoPreview').classList.remove('on'); $('#pPhotoPreview').src = ''; return; }
+  var reader = new FileReader();
+  reader.onload = function(){
+    $('#pPhotoPreview').src = reader.result;
+    $('#pPhotoPreview').classList.add('on');
+  };
+  reader.readAsDataURL(file);
+});
+
+$('#btnPickPerson').addEventListener('click', function(){
+  closeModal('mPerson');
+  state.picking = { form:'person' };
+  $('#overviewMap').classList.add('picking');
+  $('#pickBannerOverview').classList.add('on');
+  $('#overviewMap').scrollIntoView({ behavior:'smooth', block:'center' });
+});
+
+$('#personForm').addEventListener('submit', function(e){
+  e.preventDefault();
+  if (!state.pickedPerson) { alert('지도에서 실종 위치를 먼저 선택해 주세요.'); return; }
+  var isPoliceReg = state.user && state.user.role === 'police';
+
+  function finishRegister(photoDataUrl){
+    var np = {
+      id: uid(),
+      name: $('#pName').value.trim(),
+      age: Number($('#pAge').value),
+      gender: $('#pGender').value,
+      region: $('#pRegion').value.trim(),
+      missingAt: new Date($('#pTime').value).toISOString(),
+      registeredBy: isPoliceReg ? 'police' : 'citizen',
+      status: 'searching',
+      registrantEmail: state.user ? state.user.email : '',
+      face: '🙂',
+      photo: photoDataUrl || null,
+      clothes: $('#pClothes').value.trim(),
+      features: $('#pFeatures').value.trim(),
+      lastSeen: { lat: state.pickedPerson.lat, lng: state.pickedPerson.lng, label: $('#pRegion').value.trim() },
+      routes: [], reports: []
+    };
+    state.data.persons.push(np);
+    saveData();
+    closeModal('mPerson');
+    renderOverview(true); // 새 지점이 보이도록 지도 범위 재조정
+    renderCaseList();
+    updateAlertBar();
+    selectPerson(np.id);
+    sendRegistrationToSheet(np);
+    alert('실종 신고가 등록되었습니다.');
+    setTimeout(loadFromSheet, 1800); // 구글시트에 실제로 저장됐는지(사진 업로드 포함) 재동기화로 확인
+  }
+
+  var file = $('#pPhoto').files && $('#pPhoto').files[0];
+  if (file) {
+    var reader = new FileReader();
+    reader.onload = function(){ finishRegister(reader.result); };
+    reader.onerror = function(){ finishRegister(null); };
+    reader.readAsDataURL(file);
+  } else {
+    finishRegister(null);
+  }
+});
+
+/* ==================== 필터 · 모달 공통 ==================== */
+$('#timeFilter').addEventListener('change', function(){
+  state.filter = this.value;
+  renderDetailMap();
+  renderReportList();
+});
+
+document.querySelectorAll('[data-close]').forEach(function(btn){
+  btn.addEventListener('click', function(){ closeModal(btn.getAttribute('data-close')); });
+});
+document.querySelectorAll('.modalBack').forEach(function(mb){
+  mb.addEventListener('click', function(e){ if (e.target === mb) mb.classList.remove('on'); });
+});
+
+/* ==================== 로그인 ==================== */
+function isPoliceEmail(email){ return /@police\.go\.kr\s*$/i.test(email.trim()); }
+
+$('#loginEmail').addEventListener('input', function(){
+  var ok = isPoliceEmail(this.value);
+  $('#policeOk').classList.toggle('on', ok);
+  $('#roleFld').style.display = ok ? 'none' : 'block';
+});
+
+$('#loginForm').addEventListener('submit', function(e){
+  e.preventDefault();
+  var email = $('#loginEmail').value.trim();
+  var name = $('#loginName').value.trim();
+  var role = isPoliceEmail(email) ? 'police' : $('#loginRole').value;
+  state.user = { email: email, name: name, role: role };
+  localStorage.setItem(LS_USER, JSON.stringify(state.user));
+  $('#loginOverlay').style.display = 'none';
+  renderUserBox();
+  if (state.selectedId) renderDetail();
+});
+
+function renderUserBox(){
+  var u = state.user;
+  if (!u) { $('#userBox').innerHTML = ''; return; }
+  $('#userBox').innerHTML =
+    '<span>' + esc(u.name) + ' 님</span>' +
+    '<span class="roleBadge ' + (u.role === 'police' ? 'police' : '') + '">' + ROLE_LABEL[u.role] + '</span>' +
+    '<button class="btnGhost" id="btnLogout">로그아웃</button>';
+  $('#btnLogout').addEventListener('click', function(){
+    localStorage.removeItem(LS_USER);
+    location.reload();
+  });
+}
+
+function updateAlertBar(){
+  var n = state.data.persons.length;
+  $('#alertBar').textContent =
+    '[실종 경보] 현재 ' + n + '건의 실종 신고가 접수되어 수색 중입니다. 목격하신 분은 즉시 제보해 주세요.';
+}
+
+/* ==================== 경찰청 실종자 API → 구글시트 DB에 자동 동기화 ====================
+   "불러오기"를 누르면:
+   1) API 목록에 있는데 우리 시트에 아직 없는 사람 → 주소를 좌표로 바꿔서 시트에 새로 등록 (중복 등록 방지: ID로 대조)
+   2) 우리 시트에 있는 "경찰청 API로 등록된" 사람인데 이번 API 응답에는 더 이상 없는 사람
+      → 발견/해제된 것으로 보고 "삭제"가 아니라 상태만 "사건 종료"로 자동 전환합니다.
+      (완전 삭제는 오탐지 위험이 있어 경찰 인증 계정이 상세페이지에서 직접 삭제할 때만 이루어집니다.)
+   → 동기화가 끝나면 위쪽 "진행 중인 실종 사건 지도" 목록에 자동으로 함께 나타납니다.
+*/
+var API_URL = 'https://script.google.com/macros/s/AKfycbyKHPC_qrbCDEXoQu0UyMm40GuC71deaJsslkluqVR6o3a5Mh8RCIGkH2SWiN-E3RmfGw/exec';
+var API_FALLBACK_IMG = 'https://cdn-icons-png.flaticon.com/512/149/149059.png';
+var API_ID_PREFIX = 'api-'; // 경찰청 API로 등록된 사람의 실종자ID 접두사 (이 접두사로 "사라짐 = 종료" 대상을 구분함)
+
+$('#btnLoadApi').addEventListener('click', function(){
+  var box = $('#apiList');
+  box.innerHTML = '<div class="apiMsg">경찰청 실종자 정보를 불러오는 중...</div>';
+  fetch(API_URL)
+    .then(function(res){ return res.text(); })
+    .then(function(text){
+      if (text.trim().charAt(0) === '<')
+        throw new Error('JSON 데이터가 아닌 HTML 응답을 받았습니다.');
+      var result = JSON.parse(text);
+      if (!result.list || !result.list.length) {
+        box.innerHTML = '<div class="apiMsg">조회된 실종자가 없습니다.</div>';
+        return;
+      }
+      renderApiList(result.list);
+      syncApiListToSheet(result.list);
+    })
+    .catch(function(e){
+      box.innerHTML = '<div class="apiMsg err">API 연결 실패: ' + esc(e.message) + '</div>';
+    });
+});
+
+function renderApiList(list){
+  var html = '';
+  list.forEach(function(p){
+    var photo = extractApiPhoto(p) || API_FALLBACK_IMG;
+    html += '<div class="apiCard">' +
+      '<img src="' + esc(photo) + '" alt="실종자 사진" ' +
+        'onerror="this.onerror=null;this.src=\'' + API_FALLBACK_IMG + '\'">' +
+      '<div class="nm">' + esc(p.nm || '이름 없음') + '</div>' +
+      '<div class="meta">나이: ' + esc(p.ageNow != null ? p.ageNow : '정보 없음') + '</div>' +
+      '<div class="meta">발생 장소: ' + esc(p.occrAdres || '정보 없음') + '</div>' +
+      '<div class="meta">발생 일시: ' + esc(p.occrde || '정보 없음') + '</div>' +
+      '<div class="meta">착의: ' + esc(p.alldressingDscd || '정보 없음') + '</div>' +
+      '</div>';
+  });
+  $('#apiList').innerHTML = html;
+}
+
+// 경찰청 API 응답에서 사진 필드를 찾아 표시 가능한 URL로 변환.
+function extractApiPhoto(p){
+  if (!p) return null;
+  var keys = Object.keys(p);
+  for (var i = 0; i < keys.length; i++){
+    var k = keys[i];
+    if (!/photo/i.test(k)) continue;
+    var v = p[k];
+    if (v == null) continue;
+    v = String(v).trim();
+    if (!v) continue;
+    if (/^https?:\/\//i.test(v)) return v;
+    if (/^data:/i.test(v)) return v;
+    var cleaned = v.replace(/\s+/g, '');
+    if (cleaned.length < 20) continue;
+    return 'data:image/jpeg;base64,' + cleaned;
+  }
+  return null;
+}
+
+// 경찰청 API 응답의 발생 일시(occrde, 예: 20240101103000)를 ISO 문자열로 변환
+function parseApiDate(s){
+  if (!s) return new Date().toISOString();
+  var digits = String(s).replace(/[^0-9]/g, '');
+  if (digits.length >= 8) {
+    var y = digits.slice(0,4), mo = digits.slice(4,6), d = digits.slice(6,8);
+    var h = digits.length >= 10 ? digits.slice(8,10)  : '00';
+    var mi = digits.length >= 12 ? digits.slice(10,12) : '00';
+    var se = digits.length >= 14 ? digits.slice(12,14) : '00';
+    var dt = new Date(y + '-' + mo + '-' + d + 'T' + h + ':' + mi + ':' + se);
+    if (!isNaN(dt.getTime())) return dt.toISOString();
+  }
+  var dt2 = new Date(s);
+  return isNaN(dt2.getTime()) ? new Date().toISOString() : dt2.toISOString();
+}
+
+// 같은 실종자를 중복 등록하지 않기 위한 고유 ID (이름+발생일시+주소 앞부분으로 결정) — 항상 같은 사람이면 같은 값이 나옴
+function apiPersonId(p){
+  return API_ID_PREFIX + String(p.nm || '') + '_' + String(p.occrde || '') + '_' + String(p.occrAdres || '').slice(0, 12);
+}
+
+/* ---- 주소 → 좌표 변환 (Nominatim), 등록 API 요청과 공용으로 사용 ---- */
+var GEO_CACHE_KEY = 'continuous_geo_v1';
+
+function repAddr(addr){
+  if (!addr) return '';
+  var tokens = String(addr).replace(/\(.*?\)/g, ' ').trim().split(/\s+/);
+  var out = [];
+  for (var i = 0; i < tokens.length && out.length < 3; i++){
+    out.push(tokens[i]);
+    if (out.length >= 2 && /[동읍면리]$/.test(tokens[i])) break;
+  }
+  return out.join(' ');
+}
+function loadGeoCache(){
+  try { return JSON.parse(localStorage.getItem(GEO_CACHE_KEY)) || {}; } catch(e){ return {}; }
+}
+function saveGeoCache(c){ localStorage.setItem(GEO_CACHE_KEY, JSON.stringify(c)); }
+function geocode(addr){
+  var url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=kr&q='
+          + encodeURIComponent(addr);
+  return fetch(url, { headers: { 'Accept-Language': 'ko' } })
+    .then(function(r){ return r.json(); })
+    .then(function(arr){
+      if (arr && arr.length) return { lat: Number(arr[0].lat), lng: Number(arr[0].lon) };
+      return null;
+    });
+}
+
+// API로 등록된 사람 중 이번 응답에서 사라진 사람을 "삭제"가 아니라 "사건 종료" 상태로 자동 전환.
+// (canManageStatus 게이트는 로그인한 사용자의 수동 조작을 막기 위한 것이라 시스템 자동 동기화에는 적용하지 않음)
+function closePersonAuto(p){
+  p.status = 'closed';
+  saveData();
+  sendStatusUpdateToSheet(p);
+}
+
+// API 목록을 구글시트 DB와 대조해서 신규 등록 + (사라진 사람) 자동 종료 처리를 수행
+function syncApiListToSheet(list){
+  var stat = $('#apiGeoStat');
+  stat.style.display = 'block';
+
+  var currentIds = {};
+  list.forEach(function(p){ currentIds[apiPersonId(p)] = true; });
+
+  // 1) 예전에 API로 등록됐는데 이번 응답에는 더 이상 없는 사람 → 발견/해제로 보고 "사건 종료" 상태로 자동 전환(삭제 아님)
+  var toClose = state.data.persons.filter(function(existing){
+    return String(existing.id).indexOf(API_ID_PREFIX) === 0 && !currentIds[existing.id] && existing.status !== 'closed';
+  });
+  toClose.forEach(function(p){ closePersonAuto(p); });
+
+  // 2) 이미 시트에 있는(=중복인) 사람은 건너뛰고, 새로 나타난 사람만 등록 대상으로 추림
+  var existingIds = {};
+  state.data.persons.forEach(function(p){ existingIds[p.id] = true; });
+  var newOnes = list.filter(function(p){ return !existingIds[apiPersonId(p)]; });
+
+  if (!newOnes.length && !toClose.length) {
+    stat.textContent = '이미 모두 동기화되어 있습니다 (신규 0건, 자동 종료 0건).';
+    return;
+  }
+  if (!newOnes.length) {
+    stat.textContent = '자동 종료 ' + toClose.length + '건 처리 중...';
+    renderOverview(false);
+    renderCaseList();
+    setTimeout(loadFromSheet, 1500);
+    return;
+  }
+
+  var cache = loadGeoCache();
+  var i = 0;
+  function step(){
+    if (i >= newOnes.length) {
+      stat.textContent = '경찰청 API 동기화 완료 (신규 등록 ' + newOnes.length + '건, 자동 종료 ' + toClose.length + '건)';
+      setTimeout(loadFromSheet, 1800); // 시트 반영을 화면에 불러와 위쪽 목록에 표시
+      return;
+    }
+    var p = newOnes[i];
+    var addr = repAddr(p.occrAdres);
+    stat.textContent = '구글시트에 등록하는 중... (' + (i + 1) + '/' + newOnes.length + ') ' + (p.nm || '이름 없음');
+
+    function finishOne(coord){
+      registerApiPersonToSheet(p, coord);
+      i++;
+      setTimeout(step, 1100); // Nominatim 정책: 초당 1회 요청 페이스 유지
+    }
+    if (!addr) {
+      finishOne(null);
+    } else if (cache[addr]) {
+      finishOne(cache[addr]);
+    } else {
+      geocode(addr).then(function(coord){
+        cache[addr] = coord;
+        saveGeoCache(cache);
+        finishOne(coord);
+      }).catch(function(){ finishOne(null); });
+    }
+  }
+  step();
+}
+
+function registerApiPersonToSheet(p, coord){
+  postToSheet({
+    action: 'register',
+    id: apiPersonId(p),
+    name: p.nm || '이름 없음',
+    age: (p.ageNow != null && p.ageNow !== '') ? p.ageNow : '',
+    gender: p.sexdstnDscd || '',
+    region: p.occrAdres || '',
+    missingAt: parseApiDate(p.occrde),
+    clothes: p.alldressingDscd || '',
+    features: '',
+    photo: extractApiPhoto(p),
+    registrantEmail: '',
+    registeredBy: 'police',
+    status: 'searching',
+    lat: coord ? coord.lat : 33.38,
+    lng: coord ? coord.lng : 126.53,
+    lastSeenLabel: p.occrAdres || ''
+  });
+}
+
+/* ==================== 구글시트 = 유일한 데이터베이스 ====================
+   1) 구글 시트를 새로 만들고 확장 프로그램 > Apps Script 에서 Code.gs 코드를 붙여넣은 뒤
+      "배포 > 새 배포 > 웹 앱"으로 배포하고(엑세스 권한: 전체), 발급된 /exec URL을 아래에 붙여넣으세요.
+   2) 실종 신고 등록 / 상태 변경 / 삭제 / 제보 등록 — 모두 즉시 구글시트에 기록됩니다.
+   3) 화면에 그려지는 모든 데이터는 이 URL(GET)에서 받아온 목록으로 "완전히 교체"됩니다.
+      → 시트에서 삭제된 사람은 다음 새로고침(자동 20초 주기) 때 화면에서도 자동으로 사라집니다.
+*/
+var SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyF3iq7yjTqnN3ZXEfKF8Q9kb0UkM32F4oz8HVFgWvfvTOLgCuzpCy5D-IoLpkDZAjX/exec';
+
+function sheetConfigured(){
+  return SHEET_WEBAPP_URL && SHEET_WEBAPP_URL.indexOf('여기에_배포된_웹앱_URL') === -1;
+}
+
+function postToSheet(payload){
+  if (!sheetConfigured()) {
+    console.warn('SHEET_WEBAPP_URL이 설정되지 않아 구글시트 전송을 건너뜁니다.');
+    return;
+  }
+  // Apps Script 웹앱은 CORS 프리플라이트를 지원하지 않으므로 text/plain(단순 요청)으로 보내고
+  // 응답은 no-cors라 읽을 수 없지만, 시트에는 정상적으로 기록됩니다.
+  fetch(SHEET_WEBAPP_URL, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(payload)
+  }).catch(function(err){
+    console.error('구글시트 전송 실패:', err);
+  });
+}
+
+// 실종 신고가 새로 등록될 때 구글시트에 한 행 추가
+function sendRegistrationToSheet(p){
+  postToSheet({
+    action: 'register',
+    id: p.id,
+    name: p.name,
+    age: p.age,
+    gender: p.gender,
+    region: p.region,
+    missingAt: p.missingAt,
+    clothes: p.clothes,
+    features: p.features,
+    photo: p.photo,              // data:image/...;base64,... 형태 → Apps Script가 드라이브에 저장 후 링크로 변환
+    registrantEmail: p.registrantEmail,
+    registeredBy: p.registeredBy,
+    status: p.status,
+    lat: p.lastSeen.lat,
+    lng: p.lastSeen.lng,
+    lastSeenLabel: p.lastSeen.label
+  });
+}
+
+// 사건 상태(수색 중 ↔ 사건 종료)가 바뀔 때 구글시트의 해당 행을 갱신
+function sendStatusUpdateToSheet(p){
+  postToSheet({
+    action: 'updateStatus',
+    id: p.id,
+    status: p.status,
+    registrantEmail: p.registrantEmail
+  });
+}
+
+// 경찰이 실종 신고를 삭제할 때 구글시트에서도 해당 행 + 그 사람의 모든 제보를 함께 삭제
+function sendDeleteToSheet(p){
+  postToSheet({
+    action: 'delete',
+    id: p.id
+  });
+}
+
+// 목격 제보 / 이동 경로 / 가게 제보를 등록할 때 구글시트에 즉시 전송
+function sendReportToSheet(personId, r, type){
+  postToSheet({
+    action: 'addReport',
+    id: r.id,
+    personId: personId,
+    type: type,
+    lat: r.lat,
+    lng: r.lng,
+    label: r.label,
+    time: r.time || '',
+    content: r.content || r.note || '',
+    rel: r.rel,
+    visited: r.visited,
+    reporter: r.reporter || '',
+    contact: r.contact || '',
+    reporterEmail: r.reporterEmail || ''
+  });
+}
+
+// 제보/이동경로 삭제 — 등록자 본인 또는 경찰만 UI에서 호출 가능(canManageReport로 이미 검증됨)
+function sendDeleteReportToSheet(id){
+  postToSheet({
+    action: 'deleteReport',
+    id: id
+  });
+}
+
+// ---- 시트 → 사이트 : 화면 데이터를 통째로 구글시트 최신 상태로 교체 ----
+function setSyncStat(msg, isErr){
+  var el = $('#sheetSyncStat');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.toggle('err', !!isErr);
+}
+
+var sheetLoadInFlight = false;
+
+function loadFromSheet(){
+  if (!sheetConfigured()) { setSyncStat('구글시트 연동 URL이 설정되지 않았습니다.', true); return; }
+  if (sheetLoadInFlight) return; // 중복 요청 방지
+  sheetLoadInFlight = true;
+  setSyncStat('구글시트에서 불러오는 중...');
+  fetch(SHEET_WEBAPP_URL, { cache:'no-store' })
+    .then(function(res){ return res.text(); })
+    .then(function(text){
+      if (text.trim().charAt(0) === '<')
+        throw new Error('JSON이 아닌 HTML 응답 (배포 설정을 확인하세요)');
+      var result = JSON.parse(text);
+      if (!result.list) throw new Error('list 필드가 없는 응답');
+      applySheetPersons(result.list);
+      setSyncStat('마지막 동기화 ' + nowTimeLabel() + ' · ' + result.list.length + '건');
+    })
+    .catch(function(e){
+      setSyncStat('구글시트 동기화 실패: ' + e.message, true);
+    })
+    .finally(function(){ sheetLoadInFlight = false; });
+}
+
+// 구글시트에서 받아온 목록으로 화면 데이터를 "완전히 교체"한다 (병합/추가가 아님).
+// → 어느 기기에서 삭제하든, 다음 호출 때 그 사람은 목록 자체에 없으므로 모든 화면에서 사라진다.
+function applySheetPersons(list){
+  var selectedStillExists = false;
+  var newPersons = list.map(function(r){
+    if (String(r.id) === String(state.selectedId)) selectedStillExists = true;
+    return normalizeSheetPerson(r);
+  });
+  state.data.persons = newPersons;
+  saveData(); // 오프라인 재접속 시 잠깐 보여줄 캐시로만 사용
+
+  if (state.selectedId && !selectedStillExists) {
+    state.selectedId = null;
+    $('#detailSection').style.display = 'none';
+  }
+
+  renderOverview(!state.everFitOverview);
+  state.everFitOverview = true;
+  renderCaseList();
+  updateAlertBar();
+  if (state.selectedId) renderDetail();
+}
+
+function normalizeSheetPerson(r){
+  return {
+    id: r.id,
+    name: r.name || '이름 없음',
+    age: (r.age != null && r.age !== '') ? r.age : '정보 없음',
+    gender: r.gender || '정보 없음',
+    region: r.region || '정보 없음',
+    missingAt: r.missingAt || new Date().toISOString(),
+    registeredBy: r.registeredBy === 'police' ? 'police' : 'citizen',
+    status: r.status === 'closed' ? 'closed' : 'searching',
+    registrantEmail: r.registrantEmail || '',
+    face: '🙂',
+    photo: r.photo || null,
+    clothes: r.clothes || '',
+    features: r.features || '',
+    lastSeen: {
+      lat: r.lat != null && r.lat !== '' ? Number(r.lat) : 33.38,
+      lng: r.lng != null && r.lng !== '' ? Number(r.lng) : 126.53,
+      label: r.lastSeenLabel || r.region || '정보 없음'
+    },
+    routes: Array.isArray(r.routes) ? r.routes.map(function(rt){
+      return { id: rt.id, lat: Number(rt.lat), lng: Number(rt.lng), label: rt.label || '', note: rt.note || '', reporterEmail: rt.reporterEmail || '' };
+    }) : [],
+    reports: Array.isArray(r.reports) ? r.reports.map(function(rp){
+      return {
+        id: rp.id, type: rp.type, lat: Number(rp.lat), lng: Number(rp.lng),
+        label: rp.label || '', time: rp.time || '', content: rp.content || '',
+        rel: rp.rel || undefined, visited: rp.visited,
+        reporter: rp.reporter || '', contact: rp.contact || '', reporterEmail: rp.reporterEmail || ''
+      };
+    }) : []
+  };
+}
+
+/* ==================== 초기화 ==================== */
+function init(){
+  state.data = loadCachedData(); // 시트 응답이 올 때까지 아주 잠깐 보여줄 캐시(오프라인 대비)
+  try { state.user = JSON.parse(localStorage.getItem(LS_USER)); } catch(e){ state.user = null; }
+  if (!state.user) $('#loginOverlay').style.display = 'flex';
+  renderUserBox();
+  updateAlertBar();
+  initMaps();
+  renderOverview(true);
+  renderCaseList();
+  loadFromSheet(); // 구글시트를 유일한 데이터 원본으로 즉시 불러와 위 캐시를 덮어씀
+  setInterval(loadFromSheet, SHEET_POLL_MS); // 자동 동기화: 다른 기기의 등록/삭제/제보/상태변경을 반영
+}
+$('#btnRefreshSheet').addEventListener('click', loadFromSheet);
+init();
+</script>
+</body>
+</html>
