@@ -784,6 +784,11 @@ function renderPersonCard(){
   if (isPolice()) {
     deleteBtn = '<button type="button" class="btn outline sm" id="btnDeleteCase" style="margin-top:10px;margin-left:8px;border-color:#d32f2f;color:#d32f2f">🗑 삭제 (경찰 전용)</button>';
   }
+  // 시민·가족이 등록한 신고를 경찰이 직접 검토해 "경찰 등록"으로 전환할 수 있는 버튼 (경찰 계정에게만 노출)
+  var markPoliceBtn = '';
+  if (isPolice() && p.registeredBy !== 'police') {
+    markPoliceBtn = '<button type="button" class="btn outline sm" id="btnMarkPolice" style="margin-top:10px;margin-left:8px;border-color:#f2b705;color:#7a5b00">🚓 경찰 등록으로 전환</button>';
+  }
   $('#personCard').innerHTML =
     avatarHtml(p) +
     '<div class="personInfo">' +
@@ -796,11 +801,12 @@ function renderPersonCard(){
         '<tr><th>특징</th><td>' + esc(p.features || '-') + '</td></tr>' +
         emailRow +
       '</table>' +
-      statusBtn + deleteBtn +
+      statusBtn + deleteBtn + markPoliceBtn +
     '</div>';
   if ($('#btnCloseCase')) $('#btnCloseCase').addEventListener('click', function(){ setPersonStatus(p, 'closed'); });
   if ($('#btnReopenCase')) $('#btnReopenCase').addEventListener('click', function(){ setPersonStatus(p, 'searching'); });
   if ($('#btnDeleteCase')) $('#btnDeleteCase').addEventListener('click', function(){ deletePerson(p); });
+  if ($('#btnMarkPolice')) $('#btnMarkPolice').addEventListener('click', function(){ setRegisteredBy(p, 'police'); });
 }
 
 function deletePerson(p){
@@ -828,6 +834,19 @@ function setPersonStatus(p, newStatus){
   renderCaseList();
   sendStatusUpdateToSheet(p);
   alert(newStatus === 'closed' ? '사건이 종료 처리되었습니다.' : '다시 수색 중 상태로 전환되었습니다.');
+  setTimeout(loadFromSheet, 1500);
+}
+
+// 시민·가족이 등록한 실종 신고를 경찰이 검토 후 "경찰 등록"으로 전환 (경찰 계정만 가능)
+function setRegisteredBy(p, newBy){
+  if (!isPolice()) return; // 경찰만 등록 유형을 변경할 수 있음
+  p.registeredBy = newBy;
+  saveData();
+  renderPersonCard();
+  renderCaseList();
+  renderOverview(); // 지도 점 색상(경찰:노랑/시민:검정)도 즉시 반영
+  sendRegisteredByUpdateToSheet(p);
+  alert('경찰 등록으로 전환되었습니다.');
   setTimeout(loadFromSheet, 1500);
 }
 
@@ -1412,7 +1431,7 @@ function registerApiPersonToSheet(p, coord){
    3) 화면에 그려지는 모든 데이터는 이 URL(GET)에서 받아온 목록으로 "완전히 교체"됩니다.
       → 시트에서 삭제된 사람은 다음 새로고침(자동 20초 주기) 때 화면에서도 자동으로 사라집니다.
 */
-var SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyF3iq7yjTqnN3ZXEfKF8Q9kb0UkM32F4oz8HVFgWvfvTOLgCuzpCy5D-IoLpkDZAjX/exec';
+var SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbygpljhqcej_8xVM9PUPqHgqzndfqOvU91tcdU74FGPZHit5OXChP_8hQszpe606AdS/exec';
 
 function sheetConfigured(){
   return SHEET_WEBAPP_URL && SHEET_WEBAPP_URL.indexOf('여기에_배포된_웹앱_URL') === -1;
@@ -1464,6 +1483,15 @@ function sendStatusUpdateToSheet(p){
     id: p.id,
     status: p.status,
     registrantEmail: p.registrantEmail
+  });
+}
+
+// 등록 유형(시민·가족 ↔ 경찰)이 바뀔 때 구글시트의 해당 행을 갱신
+function sendRegisteredByUpdateToSheet(p){
+  postToSheet({
+    action: 'updateRegisteredBy',
+    id: p.id,
+    registeredBy: p.registeredBy
   });
 }
 
