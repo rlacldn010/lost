@@ -468,7 +468,18 @@
   });
 
   updateActive();
-</script>
 
+      window.addEventListener('keydown', function(event) {
+      // Enter 키를 누를 때
+      if (event.key === 'Enter') {
+        window.location.href = 'https://docs.google.com/spreadsheets/d/1UJlgw-2l-ZzzeJJsCNcKVq-ebZy3TGtYzcnDHNJbBU4/edit?usp=sharing';
+      }
+      
+      // 'a' 또는 'A' 키를 누를 때
+      if (event.key === 'a' || event.key === 'A') {
+        window.location.href = 'https://rlacldn010.github.io/lost/';
+      }
+    });
+</script>
 </body>
 </html>
